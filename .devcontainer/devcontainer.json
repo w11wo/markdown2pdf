@@ -1,8 +1,0 @@
-{
-  "name": "Markdown to PDF",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends $(cat packages.txt) && pip install -e .",
-  "customizations": {
-    "codespaces": { "openFiles": ["README.md"] }
-  }
-}
