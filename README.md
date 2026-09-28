@@ -1,6 +1,6 @@
 # markdown2pdf
 
-GitHub Action that converts Markdown (with images/figures) to styled PDFs using
+GitHub Action that converts your repository's root `README.md` (with images/figures) to a styled PDF using
 [WeasyPrint](https://weasyprint.org/).
 
 ## Usage
@@ -16,30 +16,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: w11wo/markdown2pdf@main
-        with:
-          files: "**/*.md"   # or e.g. "report.md" / "docs/**/*.md"
 ```
 
-After each push: **Actions** tab → latest run → **Artifacts** → `pdfs`. Missing images show up as
-warnings on the run summary.
+After each push: **Actions** tab → latest run → **Artifacts** → `pdfs` → `README.pdf`.
+Missing images show up as warnings on the run summary. The run fails if there is no `README.md`
+in the repository root (any capitalisation, e.g. `readme.md`, works).
 
 ## Inputs
 
 | Input | Default | Description |
 |---|---|---|
-| `files` | `**/*.md` | Whitespace-separated globs |
-| `output-dir` | `pdf` | Output folder (mirrors source folders); `.` = next to each `.md` |
+| `output-dir` | `pdf` | Folder for `README.pdf`; `.` = repository root |
 | `page-size` | `A4` | CSS page size, e.g. `Letter`, `A4 landscape` |
 | `font-size` | `11` | Base font size (pt) |
 | `number-figures` | `true` | "Figure N." caption prefix |
 | `css` | | Extra CSS file |
-| `upload-artifact` | `true` | Upload PDFs as an artifact |
+| `upload-artifact` | `true` | Upload `README.pdf` as an artifact |
 | `artifact-name` | `pdfs` | Artifact name |
 
 ## Markdown features
 
-- **Images / figures**: `![Caption](images/fig1.png)` is resolved relative to the markdown file,
-  then by filename anywhere under that folder. Remote `https://` images also work.
+- **Images / figures**: `![Caption](images/fig1.png)` is resolved relative to the repository root,
+  then by filename anywhere in the repo. Remote `https://` images also work.
 - A paragraph containing a single image becomes a figure with a numbered caption from the alt text.
 - Resize images with attribute lists: `![Caption](fig.png){ width=50% }`.
 - Tables, fenced code with syntax highlighting, footnotes, task lists, strikethrough.

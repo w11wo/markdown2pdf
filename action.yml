@@ -1,15 +1,12 @@
 name: Markdown to PDF
-description: Convert Markdown files (with images/figures) to styled PDFs using WeasyPrint.
+description: Convert the repository's root README.md (with images/figures) to a styled PDF using WeasyPrint.
 branding:
   icon: file-text
   color: blue
 
 inputs:
-  files:
-    description: Whitespace-separated glob(s) of markdown files to convert, e.g. "report.md" or "docs/**/*.md".
-    default: "**/*.md"
   output-dir:
-    description: Directory for PDFs (mirrors source folders). "." writes each PDF next to its .md file.
+    description: Directory for the PDF. "." writes README.pdf in the repo root.
     default: pdf
   page-size:
     description: CSS page size, e.g. A4, Letter, "A4 landscape".
@@ -24,7 +21,7 @@ inputs:
     description: Optional path to an extra CSS file.
     default: ""
   upload-artifact:
-    description: Upload generated PDFs as a workflow artifact.
+    description: Upload README.pdf as a workflow artifact.
     default: "true"
   artifact-name:
     description: Name of the uploaded artifact.
@@ -55,25 +52,27 @@ runs:
     - name: Convert markdown to PDF
       shell: bash
       env:
-        FILES: ${{ inputs.files }}
         OUTPUT_DIR: ${{ inputs.output-dir }}
         PAGE_SIZE: ${{ inputs.page-size }}
         FONT_SIZE: ${{ inputs.font-size }}
         NUMBER_FIGURES: ${{ inputs.number-figures }}
         CSS: ${{ inputs.css }}
       run: |
-        args=(--output-dir "$OUTPUT_DIR" --page-size "$PAGE_SIZE" --font-size "$FONT_SIZE")
+        args=(--output "$OUTPUT_DIR/README.pdf" --page-size "$PAGE_SIZE" --font-size "$FONT_SIZE")
         [[ -n "$CSS" ]] && args+=(--css "$CSS")
         [[ "$NUMBER_FIGURES" == "false" ]] && args+=(--no-figure-numbers)
-        set -f  # let markdown2pdf expand the globs (supports **)
-        markdown2pdf $FILES "${args[@]}"
+        readme=$(find . -maxdepth 1 -type f -iname readme.md | head -n 1)
+        if [[ -z "$readme" ]]; then
+          echo "::error::README.md not found in the repository root"
+          exit 1
+        fi
+        markdown2pdf "${readme#./}" "${args[@]}"
 
-    - name: Upload PDFs
+    - name: Upload PDF
       if: inputs.upload-artifact == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
         path: |
-          ${{ inputs.output-dir }}/**/*.pdf
-          !.git/**
+          ${{ inputs.output-dir }}/README.pdf
         if-no-files-found: error
