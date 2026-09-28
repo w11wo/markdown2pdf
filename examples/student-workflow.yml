@@ -1,0 +1,12 @@
+# Copy to .github/workflows/pdf.yml in your repo.
+# After each push, download PDFs from: Actions tab -> latest "Build PDF" run -> Artifacts -> pdfs
+name: Build PDF
+on: [push, workflow_dispatch]
+jobs:
+  pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: w11wo/markdown2pdf@main
+        with:
+          files: "**/*.md"   # or e.g. "report.md" / "docs/**/*.md"

@@ -1,0 +1,79 @@
+name: Markdown to PDF
+description: Convert Markdown files (with images/figures) to styled PDFs using WeasyPrint.
+branding:
+  icon: file-text
+  color: blue
+
+inputs:
+  files:
+    description: Whitespace-separated glob(s) of markdown files to convert, e.g. "report.md" or "docs/**/*.md".
+    default: "**/*.md"
+  output-dir:
+    description: Directory for PDFs (mirrors source folders). "." writes each PDF next to its .md file.
+    default: pdf
+  page-size:
+    description: CSS page size, e.g. A4, Letter, "A4 landscape".
+    default: A4
+  font-size:
+    description: Base font size in pt.
+    default: "11"
+  number-figures:
+    description: Prefix figure captions with "Figure N.".
+    default: "true"
+  css:
+    description: Optional path to an extra CSS file.
+    default: ""
+  upload-artifact:
+    description: Upload generated PDFs as a workflow artifact.
+    default: "true"
+  artifact-name:
+    description: Name of the uploaded artifact.
+    default: pdfs
+
+outputs:
+  output-dir:
+    description: Directory containing the generated PDFs.
+    value: ${{ inputs.output-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install system libraries
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends $(cat "$GITHUB_ACTION_PATH/packages.txt")
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install markdown2pdf
+      shell: bash
+      run: pip install --quiet "$GITHUB_ACTION_PATH"
+
+    - name: Convert markdown to PDF
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        PAGE_SIZE: ${{ inputs.page-size }}
+        FONT_SIZE: ${{ inputs.font-size }}
+        NUMBER_FIGURES: ${{ inputs.number-figures }}
+        CSS: ${{ inputs.css }}
+      run: |
+        args=(--output-dir "$OUTPUT_DIR" --page-size "$PAGE_SIZE" --font-size "$FONT_SIZE")
+        [[ -n "$CSS" ]] && args+=(--css "$CSS")
+        [[ "$NUMBER_FIGURES" == "false" ]] && args+=(--no-figure-numbers)
+        set -f  # let markdown2pdf expand the globs (supports **)
+        markdown2pdf $FILES "${args[@]}"
+
+    - name: Upload PDFs
+      if: inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.output-dir }}/**/*.pdf
+          !.git/**
+        if-no-files-found: error

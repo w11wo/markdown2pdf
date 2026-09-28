@@ -2,8 +2,10 @@
 
 import argparse
 import base64
+import glob
 import html
 import mimetypes
+import os
 import re
 import shutil
 import sys
@@ -161,24 +163,8 @@ def write_pdf(doc: str, pdf_path: Path) -> None:
     HTML(string=doc, url_fetcher=fetcher).write_pdf(pdf_path, presentational_hints=True)
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(
-        prog="markdown2pdf",
-        description="Convert Markdown (with images/figures) to PDF. "
-        "Images are resolved relative to the markdown file, then by filename.",
-    )
-    parser.add_argument("input", type=Path, help="Markdown file (.md) or .zip bundle")
-    parser.add_argument("-o", "--output", type=Path, help="Output PDF (default: <input>.pdf)")
-    parser.add_argument("--page-size", default="A4", help='CSS page size, e.g. A4, Letter, "A4 landscape"')
-    parser.add_argument("--font-size", type=float, default=11, help="Base font size in pt (default: 11)")
-    parser.add_argument("--no-figure-numbers", action="store_true", help="Don't prefix captions with 'Figure N.'")
-    parser.add_argument("--css", type=Path, help="Extra CSS file to apply")
-    args = parser.parse_args(argv)
-
-    src = args.input
-    if not src.is_file():
-        parser.error(f"File not found: {src}")
-
+def convert_file(src: Path, out: Path, page_size, font_size, number_figures, custom_css) -> list[str]:
+    """Convert one .md (or .zip bundle) to PDF; return image references that weren't found."""
     tmpdir = None
     if src.suffix.lower() == ".zip":
         tmpdir = Path(tempfile.mkdtemp(prefix="md2pdf_"))
@@ -188,30 +174,92 @@ def main(argv=None):
             key=lambda p: (len(p.parts), p.name.lower() != "readme.md"),
         )
         if not candidates:
-            parser.error(f"No .md file found in {src}")
+            raise ValueError(f"No .md file found in {src}")
         md_path, workdir = candidates[0], tmpdir
     else:
         md_path = src
         workdir = src.resolve().parent
 
-    custom_css = args.css.read_text(encoding="utf-8") if args.css else ""
-    doc, _, missing = render_html(
-        md_path.read_text(encoding="utf-8", errors="replace"),
-        md_path.resolve().parent,
-        workdir,
-        args.page_size,
-        args.font_size,
-        not args.no_figure_numbers,
-        custom_css,
-    )
-    out = args.output or src.with_suffix(".pdf")
-    write_pdf(doc, out)
-    if tmpdir:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    try:
+        doc, _, missing = render_html(
+            md_path.read_text(encoding="utf-8", errors="replace"),
+            md_path.resolve().parent,
+            workdir,
+            page_size,
+            font_size,
+            number_figures,
+            custom_css,
+        )
+        out.parent.mkdir(parents=True, exist_ok=True)
+        write_pdf(doc, out)
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    return missing
 
-    for m in sorted(set(missing)):
-        print(f"warning: image not found: {m}", file=sys.stderr)
-    print(f"Wrote {out}")
+
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv"}
+
+
+def expand_inputs(patterns: list[str]) -> list[Path]:
+    """Expand glob patterns (supports **), skipping VCS/dependency folders and duplicates."""
+    found = {}
+    for pattern in patterns:
+        matches = glob.glob(pattern, recursive=True) if glob.has_magic(pattern) else [pattern]
+        for m in sorted(matches):
+            path = Path(m)
+            if path.is_file() and not SKIP_DIRS.intersection(path.parts):
+                found.setdefault(path.resolve(), path)
+    return list(found.values())
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="markdown2pdf",
+        description="Convert Markdown (with images/figures) to PDF. "
+        "Images are resolved relative to the markdown file, then by filename.",
+    )
+    parser.add_argument("inputs", nargs="+", help='Markdown file(s), .zip bundles, or globs like "docs/**/*.md"')
+    parser.add_argument("-o", "--output", type=Path, help="Output PDF (single input only; default: <input>.pdf)")
+    parser.add_argument("-d", "--output-dir", type=Path, help="Write PDFs here, mirroring source folders")
+    parser.add_argument("--page-size", default="A4", help='CSS page size, e.g. A4, Letter, "A4 landscape"')
+    parser.add_argument("--font-size", type=float, default=11, help="Base font size in pt (default: 11)")
+    parser.add_argument("--no-figure-numbers", action="store_true", help="Don't prefix captions with 'Figure N.'")
+    parser.add_argument("--css", type=Path, help="Extra CSS file to apply")
+    args = parser.parse_args(argv)
+
+    inputs = expand_inputs(args.inputs)
+    if not inputs:
+        parser.error(f"No files matched: {' '.join(args.inputs)}")
+    if args.output and len(inputs) > 1:
+        parser.error("--output works with a single input; use --output-dir for several")
+
+    # In GitHub Actions, emit problems as annotations on the markdown file.
+    gha = os.environ.get("GITHUB_ACTIONS") == "true"
+    custom_css = args.css.read_text(encoding="utf-8") if args.css else ""
+    failed = 0
+    for src in inputs:
+        if args.output:
+            out = args.output
+        elif args.output_dir:
+            rel = src.resolve().relative_to(Path.cwd()) if src.resolve().is_relative_to(Path.cwd()) else Path(src.name)
+            out = args.output_dir / rel.with_suffix(".pdf")
+        else:
+            out = src.with_suffix(".pdf")
+        try:
+            missing = convert_file(src, out, args.page_size, args.font_size, not args.no_figure_numbers, custom_css)
+        except Exception as e:  # keep going so one bad file doesn't block the rest
+            failed += 1
+            print(f"::error file={src}::{e}" if gha else f"error: {src}: {e}", file=sys.stderr)
+            continue
+        for m in sorted(set(missing)):
+            msg = f"image not found: {m}"
+            print(f"::warning file={src}::{msg}" if gha else f"warning: {src}: {msg}", file=sys.stderr)
+        print(f"Wrote {out}")
+
+    if failed:
+        print(f"{failed} of {len(inputs)} file(s) failed", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
