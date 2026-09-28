@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "markdown2pdf"
+version = "0.1.0"
+description = "Convert Markdown (with images/figures) to PDF"
+requires-python = ">=3.10"
+dependencies = [
+    "weasyprint>=70",
+    "markdown>=3.6",
+    "pymdown-extensions>=10",
+    "pygments>=2.17",
+]
+
+[project.scripts]
+markdown2pdf = "md2pdf:main"
+
+[tool.setuptools]
+py-modules = ["md2pdf"]
